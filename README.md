@@ -2,19 +2,6 @@
 #!/usr/bin/env python
 # coding: utf-8
 
-# In[ ]:
-
-
-#!/usr/bin/env python
-# coding: utf-8
-
-#!/usr/bin/env python
-# coding: utf-8
-
-# portfolio_analysis_app.py
-
-# portfolio_analysis_app.py
-
 import streamlit as st
 import pandas as pd
 import yfinance as yf
