@@ -180,6 +180,10 @@ else:
 if st.button("Run Backtesting"):
     st.session_state.backtesting_run = True
 
+# Ensure backtesting_run remains True after initial run
+if 'backtesting_run' in st.session_state and st.session_state.backtesting_run:
+    st.session_state.backtesting_run = True
+
 if st.session_state.backtesting_run:
     # Main content
     for period_name, period in selected_periods:
@@ -220,6 +224,13 @@ if st.session_state.backtesting_run:
         non_rebalanced_portfolio = compute_rebalanced_portfolio(returns, weights_series.values, [])
         monthly_portfolio = compute_rebalanced_portfolio(returns, weights_series.values, monthly_rebalance_dates)
         yearly_portfolio = compute_rebalanced_portfolio(returns, weights_series.values, yearly_rebalance_dates)
+
+        # Store portfolios in session_state
+        st.session_state.non_rebalanced_portfolio = non_rebalanced_portfolio
+        st.session_state.monthly_portfolio = monthly_portfolio
+        st.session_state.yearly_portfolio = yearly_portfolio
+        st.session_state.returns = returns
+        st.session_state.merged_data = merged_data
 
         # Calculate cumulative returns
         non_rebalanced_return = non_rebalanced_portfolio.iloc[-1] / non_rebalanced_portfolio.iloc[0] - 1
@@ -416,109 +427,113 @@ if st.session_state.backtesting_run:
                     ax.grid(True)
                     st.pyplot(fig)
                     plt.clf()
-
-            # Monte Carlo Simulation
-            st.header("Monte Carlo Simulation")
-            st.write("Simulate future portfolio values based on historical returns and investment strategies.")
-
-            # Input initial investment
-            initial_investment = st.number_input("Enter the initial investment amount ($):",
-                                                 min_value=0.0, value=10000.0, step=1000.0)
-
-            # Cash flow inputs
-            st.subheader("Cash Flow Details")
-            num_cash_flows = st.number_input("Number of different cash flows to add:", min_value=0, max_value=10, value=0, step=1)
-
-            cash_flows = []
-            if num_cash_flows > 0:
-                for i in range(num_cash_flows):
-                    st.write(f"**Cash Flow {i+1}:**")
-                    amount = st.number_input(f"Amount to invest (positive) or withdraw (negative) for Cash Flow {i+1} ($):",
-                                             value=0.0, step=100.0, format="%.2f", key=f"cf_amount_{i}")
-                    frequency = st.selectbox(f"Frequency of Cash Flow {i+1}:", ['Daily', 'Weekly', 'Monthly', 'Quarterly', 'Annually'],
-                                             index=2, key=f"cf_frequency_{i}")
-                    start_year = st.number_input(f"Start year for Cash Flow {i+1} (e.g., 0 for immediate start):",
-                                                 min_value=0.0, value=0.0, step=0.1, key=f"cf_start_{i}")
-                    end_year = st.number_input(f"End year for Cash Flow {i+1}:",
-                                               min_value=start_year, value=start_year+1, step=0.1, key=f"cf_end_{i}")
-                    cash_flows.append({
-                        'amount': amount,
-                        'frequency': frequency,
-                        'start_day': int(start_year * 252),  # Convert years to trading days
-                        'end_day': int(end_year * 252)       # Convert years to trading days
-                    })
-
-            if num_cash_flows >= 0:
-                # Time horizon and number of simulations
-                time_horizon_years = st.number_input("Enter the investment time horizon in years:",
-                                                     min_value=1.0, value=10.0, step=1.0)
-                num_simulations = st.number_input("Enter the number of simulations to run:",
-                                                  min_value=100, max_value=10000, value=1000, step=100)
-                time_horizon_days = int(time_horizon_years * 252)  # Convert years to trading days
-
-                # Select portfolio to simulate
-                portfolios_to_simulate = {
-                    'Weighted Portfolio Return': non_rebalanced_portfolio.pct_change().dropna(),
-                    'Monthly Rebalanced Portfolio': monthly_portfolio.pct_change().dropna(),
-                    'Yearly Rebalanced Portfolio': yearly_portfolio.pct_change().dropna()
-                }
-
-                selected_portfolio_name = st.selectbox("Select a portfolio for simulation:", list(portfolios_to_simulate.keys()))
-                returns_series = portfolios_to_simulate[selected_portfolio_name]
-
-                # Run Monte Carlo Simulation only when button is clicked
-                if st.button("Run Monte Carlo Simulation"):
-                    st.session_state.simulation_run = True
-
-                if st.session_state.simulation_run:
-                    st.write(f"Performing Monte Carlo simulation for **{selected_portfolio_name}**...")
-                    simulation_results = monte_carlo_simulation(
-                        returns_series,
-                        int(num_simulations),
-                        time_horizon_days,
-                        initial_investment,
-                        cash_flows
-                    )
-
-                    # Calculate the mean and percentiles
-                    ending_values = simulation_results[-1, :]
-                    mean_ending_value = np.mean(ending_values)
-                    median_ending_value = np.median(ending_values)
-                    percentile_5 = np.percentile(ending_values, 5)
-                    percentile_95 = np.percentile(ending_values, 95)
-
-                    st.write(f"**Mean ending value after {time_horizon_years} years:** ${mean_ending_value:,.2f}")
-                    st.write(f"**Median ending value after {time_horizon_years} years:** ${median_ending_value:,.2f}")
-                    st.write(f"**5th percentile:** ${percentile_5:,.2f}")
-                    st.write(f"**95th percentile:** ${percentile_95:,.2f}")
-
-                    # Calculate success rate
-                    # A simulation is successful if the portfolio value never hits zero or below during the entire period
-                    successes = np.sum(np.all(simulation_results > 0, axis=0))
-                    success_rate = successes / num_simulations * 100
-
-                    st.write(f"**Success Rate:** {success_rate:.2f}% of simulations never hit zero or below during the period.")
-
-                    # Plot the distribution of ending values
-                    fig, ax = plt.subplots(figsize=(10, 6))
-                    ax.hist(ending_values, bins=50, edgecolor='black')
-                    ax.set_title(f'Distribution of Ending Portfolio Values - {selected_portfolio_name}')
-                    ax.set_xlabel('Ending Portfolio Value ($)')
-                    ax.set_ylabel('Frequency')
-                    ax.grid(True)
-                    st.pyplot(fig)
-                    plt.clf()
-
-                    # Plot sample simulated paths
-                    fig, ax = plt.subplots(figsize=(12, 6))
-                    num_paths_to_plot = min(100, int(num_simulations))
-                    ax.plot(simulation_results[:, :num_paths_to_plot])
-                    ax.set_title(f'Sample Simulated Portfolio Paths - {selected_portfolio_name}')
-                    ax.set_xlabel('Days')
-                    ax.set_ylabel('Portfolio Value ($)')
-                    ax.grid(True)
-                    st.pyplot(fig)
-                    plt.clf()
         else:
             # If it's a bear market period, do not perform additional analyses
             st.write("Bear Market Period Analysis: Only cumulative returns and chart are displayed for bear market periods.")
+
+# Monte Carlo Simulation
+st.header("Monte Carlo Simulation")
+st.write("Simulate future portfolio values based on historical returns and investment strategies.")
+
+# Check if backtesting has been run and variables are available
+if 'non_rebalanced_portfolio' not in st.session_state:
+    st.error("Please run backtesting first to initialize the portfolios.")
+else:
+    # Input initial investment
+    initial_investment = st.number_input("Enter the initial investment amount ($):",
+                                         min_value=0.0, value=10000.0, step=1000.0)
+
+    # Cash flow inputs
+    st.subheader("Cash Flow Details")
+    num_cash_flows = st.number_input("Number of different cash flows to add:", min_value=0, max_value=10, value=0, step=1)
+
+    cash_flows = []
+    if num_cash_flows > 0:
+        for i in range(num_cash_flows):
+            st.write(f"**Cash Flow {i+1}:**")
+            amount = st.number_input(f"Amount to invest (positive) or withdraw (negative) for Cash Flow {i+1} ($):",
+                                     value=0.0, step=100.0, format="%.2f", key=f"cf_amount_{i}")
+            frequency = st.selectbox(f"Frequency of Cash Flow {i+1}:", ['Daily', 'Weekly', 'Monthly', 'Quarterly', 'Annually'],
+                                     index=2, key=f"cf_frequency_{i}")
+            start_year = st.number_input(f"Start year for Cash Flow {i+1} (e.g., 0 for immediate start):",
+                                         min_value=0.0, value=0.0, step=0.1, key=f"cf_start_{i}")
+            end_year = st.number_input(f"End year for Cash Flow {i+1}:",
+                                       min_value=start_year, value=start_year+1, step=0.1, key=f"cf_end_{i}")
+            cash_flows.append({
+                'amount': amount,
+                'frequency': frequency,
+                'start_day': int(start_year * 252),  # Convert years to trading days
+                'end_day': int(end_year * 252)       # Convert years to trading days
+            })
+
+    if num_cash_flows >= 0:
+        # Time horizon and number of simulations
+        time_horizon_years = st.number_input("Enter the investment time horizon in years:",
+                                             min_value=1.0, value=10.0, step=1.0)
+        num_simulations = st.number_input("Enter the number of simulations to run:",
+                                          min_value=100, max_value=10000, value=1000, step=100)
+        time_horizon_days = int(time_horizon_years * 252)  # Convert years to trading days
+
+        # Select portfolio to simulate
+        portfolios_to_simulate = {
+            'Weighted Portfolio Return': st.session_state.non_rebalanced_portfolio.pct_change().dropna(),
+            'Monthly Rebalanced Portfolio': st.session_state.monthly_portfolio.pct_change().dropna(),
+            'Yearly Rebalanced Portfolio': st.session_state.yearly_portfolio.pct_change().dropna()
+        }
+
+        selected_portfolio_name = st.selectbox("Select a portfolio for simulation:", list(portfolios_to_simulate.keys()))
+        returns_series = portfolios_to_simulate[selected_portfolio_name]
+
+        # Run Monte Carlo Simulation only when button is clicked
+        if st.button("Run Monte Carlo Simulation"):
+            st.session_state.simulation_run = True
+
+        if st.session_state.simulation_run:
+            st.write(f"Performing Monte Carlo simulation for **{selected_portfolio_name}**...")
+            simulation_results = monte_carlo_simulation(
+                returns_series,
+                int(num_simulations),
+                time_horizon_days,
+                initial_investment,
+                cash_flows
+            )
+
+            # Calculate the mean and percentiles
+            ending_values = simulation_results[-1, :]
+            mean_ending_value = np.mean(ending_values)
+            median_ending_value = np.median(ending_values)
+            percentile_5 = np.percentile(ending_values, 5)
+            percentile_95 = np.percentile(ending_values, 95)
+
+            st.write(f"**Mean ending value after {time_horizon_years} years:** ${mean_ending_value:,.2f}")
+            st.write(f"**Median ending value after {time_horizon_years} years:** ${median_ending_value:,.2f}")
+            st.write(f"**5th percentile:** ${percentile_5:,.2f}")
+            st.write(f"**95th percentile:** ${percentile_95:,.2f}")
+
+            # Calculate success rate
+            # A simulation is successful if the portfolio value never hits zero or below during the entire period
+            successes = np.sum(np.all(simulation_results > 0, axis=0))
+            success_rate = successes / num_simulations * 100
+
+            st.write(f"**Success Rate:** {success_rate:.2f}% of simulations never hit zero or below during the period.")
+
+            # Plot the distribution of ending values
+            fig, ax = plt.subplots(figsize=(10, 6))
+            ax.hist(ending_values, bins=50, edgecolor='black')
+            ax.set_title(f'Distribution of Ending Portfolio Values - {selected_portfolio_name}')
+            ax.set_xlabel('Ending Portfolio Value ($)')
+            ax.set_ylabel('Frequency')
+            ax.grid(True)
+            st.pyplot(fig)
+            plt.clf()
+
+            # Plot sample simulated paths
+            fig, ax = plt.subplots(figsize=(12, 6))
+            num_paths_to_plot = min(100, int(num_simulations))
+            ax.plot(simulation_results[:, :num_paths_to_plot])
+            ax.set_title(f'Sample Simulated Portfolio Paths - {selected_portfolio_name}')
+            ax.set_xlabel('Days')
+            ax.set_ylabel('Portfolio Value ($)')
+            ax.grid(True)
+            st.pyplot(fig)
+            plt.clf()
